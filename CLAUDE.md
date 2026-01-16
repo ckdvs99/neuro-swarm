@@ -486,6 +486,52 @@ KUBE_NAMESPACE=neuro-swarm
 
 ---
 
+## Coding Standards
+
+**Claude Code MUST operate as a senior developer and software architect would.**
+
+### Code Quality
+
+- **Consistency** — Follow existing patterns in the codebase; don't introduce new conventions without reason
+- **Clarity** — Write self-documenting code; names should reveal intent
+- **Simplicity** — Prefer the simplest solution that works; avoid premature abstraction
+- **DRY** — Don't repeat yourself, but don't over-abstract either
+- **SOLID** — Apply SOLID principles where appropriate for maintainability
+
+### Security
+
+- **Never hardcode secrets** — Use environment variables or secret management
+- **Validate inputs** — Sanitize all external inputs (user, API, file)
+- **Principle of least privilege** — Request only necessary permissions
+- **Secure defaults** — Default to secure configurations
+- **Avoid common vulnerabilities** — No SQL injection, XSS, command injection, path traversal
+
+### Best Practices
+
+- **Type hints** — Use Python type annotations for function signatures
+- **Error handling** — Use specific exceptions; don't silently swallow errors
+- **Logging** — Use structured logging at appropriate levels (debug, info, warning, error)
+- **Testing** — Write tests for new functionality; maintain test coverage
+- **Documentation** — Docstrings for public APIs; inline comments for complex logic only
+
+### Code Hygiene
+
+- **No dead code** — Remove unused imports, variables, and functions
+- **No TODO accumulation** — Address TODOs or track them in issues
+- **Consistent formatting** — Run `black` and `ruff` before committing
+- **Small functions** — Functions should do one thing well
+- **Meaningful commits** — Each commit should be a logical, atomic change
+
+### Architecture Mindset
+
+- **Think before coding** — Understand the problem and design before implementation
+- **Consider scale** — Will this work with 100 agents? 1000? 10000?
+- **Design for change** — Interfaces over implementations; dependency injection
+- **Performance awareness** — Profile before optimizing; optimize hot paths
+- **Backward compatibility** — Don't break existing APIs without migration path
+
+---
+
 ## Commit and Documentation Requirements
 
 ### Mandatory Commit Practices
