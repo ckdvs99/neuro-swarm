@@ -251,14 +251,17 @@ class MAPElites(EvolutionaryAlgorithm):
         
         # Archive: mapping from cell index to (genome, fitness, behavior)
         self.archive: Dict[Tuple[int, ...], Tuple[Genome, float, np.ndarray]] = {}
-        
+
         # Initialize with random genomes if provided
         self.pending_genomes: List[Genome] = initial_population or []
         if not self.pending_genomes:
             self.pending_genomes = [
-                SwarmGenome.random(self.rng) 
+                SwarmGenome.random(self.rng)
                 for _ in range(config.population_size)
             ]
+
+        # Track current batch of genomes for result association
+        self._current_genomes: List[Genome] = []
     
     def _get_cell(self, behavior: np.ndarray) -> Tuple[int, ...]:
         """Map behavior to archive cell."""
@@ -274,42 +277,58 @@ class MAPElites(EvolutionaryAlgorithm):
             # Return pending (initial) genomes
             genomes = self.pending_genomes
             self.pending_genomes = []
+            self._current_genomes = genomes
             return genomes
-        
+
         # Generate new candidates by mutating archive members
         candidates = []
         archive_list = list(self.archive.values())
-        
+
         for _ in range(self.config.population_size):
             if archive_list and self.rng.random() > 0.1:
                 # Select parent from archive (uniform random)
                 parent, _, _ = archive_list[self.rng.integers(len(archive_list))]
-                child = parent.mutate(self.rng)
-                
-                # Optional crossover
-                if self.rng.random() < self.config.crossover_rate and len(archive_list) > 1:
-                    other, _, _ = archive_list[self.rng.integers(len(archive_list))]
-                    child = crossover(child, other, self.rng)
-                
-                candidates.append(child)
+                if parent is not None:
+                    child = parent.mutate(self.rng)
+
+                    # Optional crossover
+                    if self.rng.random() < self.config.crossover_rate and len(archive_list) > 1:
+                        other, _, _ = archive_list[self.rng.integers(len(archive_list))]
+                        if other is not None:
+                            child = crossover(child, other, self.rng)
+
+                    candidates.append(child)
+                else:
+                    # Fallback if genome is None
+                    candidates.append(SwarmGenome.random(self.rng))
             else:
                 # Random genome for exploration
                 candidates.append(SwarmGenome.random(self.rng))
-        
+
+        self._current_genomes = candidates
         return candidates
     
     def tell(self, results: List[EvaluationResult]) -> None:
         """Update archive with new results."""
         additions = 0
         improvements = 0
-        
-        for result in results:
+
+        for i, result in enumerate(results):
             cell = self._get_cell(result.behavior)
-            
+
+            # Get genome: prefer from result, then metadata, then tracked genomes
+            genome = result.genome
+            if genome is None and hasattr(result, 'metadata'):
+                # Check if genome was stored in metadata (from controller)
+                genome = result.metadata.get('_genome')
+            if genome is None and i < len(self._current_genomes):
+                # Fall back to tracked genomes from ask()
+                genome = self._current_genomes[i]
+
             if cell not in self.archive:
                 # New cell discovered
                 self.archive[cell] = (
-                    type(result).from_dict if hasattr(result, 'genome') else None,
+                    genome,
                     result.fitness,
                     result.behavior
                 )
@@ -317,7 +336,7 @@ class MAPElites(EvolutionaryAlgorithm):
             elif result.fitness > self.archive[cell][1]:
                 # Better solution for this cell
                 self.archive[cell] = (
-                    None,  # We'd need to pass genome through result
+                    genome,
                     result.fitness,
                     result.behavior
                 )

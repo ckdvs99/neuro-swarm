@@ -20,7 +20,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 import numpy as np
 
 
@@ -101,6 +101,9 @@ class DynamicTension(TensionResolver):
     Context-dependent force resolution.
 
     Weights adapt based on agent state and environment.
+
+    Implements Principle 2: Balance over power — the system
+    dynamically balances forces based on context.
     """
 
     def __init__(self):
@@ -114,6 +117,49 @@ class DynamicTension(TensionResolver):
             ForceType.DISRUPTION: 0.3,
         }
 
+    def _compute_dynamic_weights(
+        self,
+        energy: float,
+        threat_level: float
+    ) -> Dict[ForceType, float]:
+        """
+        Compute context-dependent weights.
+
+        State-dependent modulation:
+        - Low energy: seek safety (cohesion, preservation)
+        - High threat: defensive posture (separation, preservation)
+        - High energy + low threat: opportunity for exploration
+        - Medium states: balanced behavior
+        """
+        weights = self.base_weights.copy()
+
+        # Clamp inputs
+        energy = np.clip(energy, 0.0, 1.0)
+        threat_level = np.clip(threat_level, 0.0, 1.0)
+
+        # Low energy modulation
+        # When tired, stay close to others and preserve state
+        fatigue = 1.0 - energy
+        weights[ForceType.COHESION] *= (1.0 + 0.5 * fatigue)
+        weights[ForceType.PRESERVATION] *= (1.0 + 0.8 * fatigue)
+        weights[ForceType.EXPLORATION] *= (1.0 - 0.7 * fatigue)
+        weights[ForceType.DISRUPTION] *= (1.0 - 0.9 * fatigue)
+
+        # Threat modulation
+        # Under threat, separate and preserve but stay somewhat aligned
+        weights[ForceType.SEPARATION] *= (1.0 + 1.0 * threat_level)
+        weights[ForceType.PRESERVATION] *= (1.0 + 0.5 * threat_level)
+        weights[ForceType.ALIGNMENT] *= (1.0 + 0.3 * threat_level)
+        weights[ForceType.EXPLORATION] *= (1.0 - 0.8 * threat_level)
+        weights[ForceType.DISRUPTION] *= (1.0 - 0.5 * threat_level)
+
+        # Opportunity modulation (high energy, low threat)
+        opportunity = energy * (1.0 - threat_level)
+        weights[ForceType.EXPLORATION] *= (1.0 + 1.5 * opportunity)
+        weights[ForceType.EXPLOITATION] *= (1.0 + 0.5 * opportunity)
+
+        return weights
+
     def resolve(
         self,
         forces: List[Force],
@@ -123,13 +169,37 @@ class DynamicTension(TensionResolver):
         """
         Resolve forces with context-dependent weighting.
 
-        - Low energy: favor cohesion and preservation
-        - High threat: favor separation and preservation
-        - High energy, low threat: favor exploration
+        Args:
+            forces: List of forces acting on the agent
+            energy: Agent's current energy level [0, 1]
+            threat_level: Perceived threat in environment [0, 1]
+
+        Returns:
+            Resolved action vector (normalized weighted sum)
+
+        Behavior:
+        - Low energy: favor cohesion and preservation (stay safe)
+        - High threat: favor separation and preservation (flee/defend)
+        - High energy, low threat: favor exploration (opportunity)
         """
-        # TODO: Implement context-dependent resolution
-        # This is a key mechanism for adaptive behavior
-        raise NotImplementedError("DynamicTension.resolve")
+        if not forces:
+            return np.zeros(2)
+
+        # Get context-dependent weights
+        weights = self._compute_dynamic_weights(energy, threat_level)
+
+        result = np.zeros_like(forces[0].direction)
+        total_weight = 0.0
+
+        for force in forces:
+            weight = weights.get(force.force_type, 1.0) * force.magnitude
+            result += weight * force.direction
+            total_weight += weight
+
+        if total_weight > 0:
+            result /= total_weight
+
+        return result
 
 
 class PaladinChaosBalance:

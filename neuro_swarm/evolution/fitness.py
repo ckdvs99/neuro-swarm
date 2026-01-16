@@ -20,18 +20,23 @@ class EvaluationResult:
     Result of evaluating a genome.
 
     Contains both fitness (how good) and behavior (what kind).
+    Optionally includes the genome that produced this result (for MAP-Elites).
     """
 
     fitness: float
     behavior: np.ndarray  # Behavioral descriptor vector
     metadata: Dict[str, Any] = field(default_factory=dict)
+    genome: Optional[Any] = None  # Optional genome reference for archive storage
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "fitness": self.fitness,
             "behavior": self.behavior.tolist(),
             "metadata": self.metadata,
         }
+        if self.genome is not None and hasattr(self.genome, "to_dict"):
+            result["genome"] = self.genome.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EvaluationResult":
@@ -39,6 +44,7 @@ class EvaluationResult:
             fitness=data["fitness"],
             behavior=np.array(data["behavior"]),
             metadata=data.get("metadata", {}),
+            genome=data.get("genome"),  # Will be dict, needs reconstruction if used
         )
 
 

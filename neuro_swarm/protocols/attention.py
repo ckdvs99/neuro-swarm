@@ -47,13 +47,41 @@ class LocalAttention:
 
         Returns list of (neighbor_state, attention_weight) tuples,
         limited to neighbor_limit entries.
+
+        Implements Principle 4: Locality is honesty — 7±2 neighbors max.
         """
-        # TODO: Implement neighbor selection
-        # - Compute distances
-        # - Apply radius filter if specified
-        # - Select top-k by relevance (distance, heading alignment, etc.)
-        # - Compute attention weights
-        raise NotImplementedError("LocalAttention.select_neighbors")
+        if not all_states:
+            return []
+
+        candidates = []
+        for state in all_states:
+            # Skip self if requested (compare by position identity)
+            if exclude_self and np.allclose(state.position, agent_state.position):
+                continue
+
+            # Compute distance
+            distance = np.linalg.norm(state.position - agent_state.position)
+
+            # Apply radius filter if specified
+            if self.attention_radius is not None and distance > self.attention_radius:
+                continue
+
+            candidates.append((state, distance))
+
+        # Sort by distance (nearest first)
+        candidates.sort(key=lambda x: x[1])
+
+        # Limit to neighbor_limit
+        candidates = candidates[:self.neighbor_limit]
+
+        if not candidates:
+            return []
+
+        # Compute attention weights for selected neighbors
+        neighbor_states = [c[0] for c in candidates]
+        weights = self.compute_attention_weights(agent_state, neighbor_states)
+
+        return list(zip(neighbor_states, weights))
 
     def compute_attention_weights(
         self,
@@ -64,12 +92,48 @@ class LocalAttention:
         Compute attention weights for given neighbors.
 
         Returns array of weights that sum to 1.
+
+        Attention is computed based on:
+        - Distance (closer = more attention)
+        - Heading alignment (aligned neighbors = more attention)
+        - Energy state (active neighbors = more attention)
+
+        Implements Principle 8: State is memory; gating is attention.
         """
-        # TODO: Implement attention weight computation
-        # - Consider distance (closer = more attention)
-        # - Consider heading alignment (aligned = more attention)
-        # - Consider energy states
-        raise NotImplementedError("LocalAttention.compute_attention_weights")
+        if not neighbor_states:
+            return np.array([])
+
+        n = len(neighbor_states)
+        scores = np.zeros(n)
+
+        for i, neighbor in enumerate(neighbor_states):
+            # Distance component: inverse distance weighting
+            distance = np.linalg.norm(neighbor.position - agent_state.position)
+            distance_score = 1.0 / (1.0 + distance)
+
+            # Heading alignment: cosine similarity of velocities
+            agent_vel_norm = np.linalg.norm(agent_state.velocity)
+            neighbor_vel_norm = np.linalg.norm(neighbor.velocity)
+
+            if agent_vel_norm > 1e-6 and neighbor_vel_norm > 1e-6:
+                alignment = np.dot(agent_state.velocity, neighbor.velocity)
+                alignment = alignment / (agent_vel_norm * neighbor_vel_norm)
+                alignment_score = (alignment + 1.0) / 2.0  # Map [-1, 1] to [0, 1]
+            else:
+                alignment_score = 0.5  # Neutral if not moving
+
+            # Energy component: active neighbors are more informative
+            energy_score = neighbor.energy
+
+            # Combined score (weighted average)
+            scores[i] = 0.5 * distance_score + 0.3 * alignment_score + 0.2 * energy_score
+
+        # Softmax normalization for attention weights
+        scores = scores - scores.max()  # Numerical stability
+        exp_scores = np.exp(scores)
+        weights = exp_scores / (exp_scores.sum() + 1e-8)
+
+        return weights
 
     def attend(
         self,
@@ -80,7 +144,48 @@ class LocalAttention:
         """
         Compute attended representation of neighbors.
 
-        Weighted combination of neighbor information.
+        Weighted combination of neighbor information in egocentric frame.
+
+        Returns:
+            Attended vector containing:
+            - Weighted relative position (2D)
+            - Weighted relative velocity (2D)
+            - Weighted average energy (1D)
+            - Attention entropy (1D) - measure of attention distribution
         """
-        # TODO: Implement attended representation
-        raise NotImplementedError("LocalAttention.attend")
+        if not neighbor_states or len(weights) == 0:
+            return np.zeros(6)
+
+        # Ensure weights sum to 1
+        weights = weights / (weights.sum() + 1e-8)
+
+        # Compute weighted features
+        weighted_rel_pos = np.zeros(2)
+        weighted_rel_vel = np.zeros(2)
+        weighted_energy = 0.0
+
+        for i, neighbor in enumerate(neighbor_states):
+            w = weights[i]
+            # Relative position (egocentric)
+            rel_pos = neighbor.position - agent_state.position
+            weighted_rel_pos += w * rel_pos
+
+            # Relative velocity
+            rel_vel = neighbor.velocity - agent_state.velocity
+            weighted_rel_vel += w * rel_vel
+
+            # Energy
+            weighted_energy += w * neighbor.energy
+
+        # Attention entropy: how spread out is attention?
+        # Low entropy = focused attention, high entropy = diffuse attention
+        entropy = -np.sum(weights * np.log(weights + 1e-8))
+        max_entropy = np.log(len(weights) + 1e-8)
+        normalized_entropy = entropy / (max_entropy + 1e-8)
+
+        return np.concatenate([
+            weighted_rel_pos,
+            weighted_rel_vel,
+            [weighted_energy],
+            [normalized_entropy]
+        ])

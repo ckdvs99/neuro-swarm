@@ -122,6 +122,11 @@ neuro-swarm/
 │   │   ├── consensus.py      # Emergent agreement
 │   │   └── tension.py        # Opposing forces (Paladin/Chaos)
 │   │
+│   ├── services/             # Distributed services
+│   │   ├── queue.py          # Task queue (Redis/in-memory)
+│   │   ├── controller.py     # Evolution controller
+│   │   └── worker.py         # Evaluation worker
+│   │
 │   ├── environments/         # Simulation environments
 │   │   └── simple_field.py   # 2D continuous space
 │   │
@@ -139,6 +144,11 @@ neuro-swarm/
 │       └── all-in-one.yaml   # Full deployment manifest
 │
 ├── tests/                    # Test suite
+│   ├── test_agent.py         # Core agent tests
+│   ├── test_protocols.py     # Protocol tests
+│   ├── test_evolution.py     # Evolution algorithm tests
+│   └── test_services.py      # Distributed services tests
+│
 └── docs/                     # Documentation and assets
     └── DEPLOYMENT.md         # Kubernetes deployment guide
 ```
@@ -216,6 +226,57 @@ Distributed evolutionary optimization for swarm parameters.
 - `SwarmCoherenceFitness` — Rewards cohesion, alignment, efficiency
 - `TaskCompletionFitness` — Rewards goal achievement
 
+### Protocols (`protocols/`)
+
+Interaction protocols for swarm coordination.
+
+**Attention** (`attention.py`):
+- `LocalAttention` — Neighbor selection with attention weighting
+  - `select_neighbors()` — Select most relevant neighbors (7±2)
+  - `compute_attention_weights()` — Distance + alignment + energy weighted
+  - `attend()` — Compute attended representation of neighbors
+
+**Consensus** (`consensus.py`):
+- `TriumvirateConsensus` — Three-agent consensus (2/3 agreement)
+- `LocalConsensus` — Neighborhood-based consensus for larger swarms
+- `RoleBasedConsensus` — Role-weighted consensus (Paladin/Explorer/Integrator)
+
+**Tension** (`tension.py`):
+- `LinearTension` — Weighted sum of forces
+- `DynamicTension` — Context-dependent force resolution
+  - Low energy → favor cohesion/preservation
+  - High threat → favor separation/preservation
+  - High energy + low threat → favor exploration
+- `PaladinChaosBalance` — Preservation vs disruption dynamics
+
+### Services (`services/`)
+
+Distributed services for evolutionary optimization.
+
+**Queue** (`queue.py`):
+- `InMemoryTaskQueue` — Thread-safe queue for single-machine use
+- `RedisTaskQueue` — Redis-backed queue for distributed execution
+- `EvaluationTask` / `EvaluationResultMessage` — Task serialization
+
+**Controller** (`controller.py`):
+- `EvolutionController` — Manages evolution process
+  - Generates candidate genomes
+  - Distributes evaluation tasks
+  - Collects results and updates algorithm
+  - Supports ES, MAP-Elites, Novelty Search
+
+**Worker** (`worker.py`):
+- `EvaluationWorker` — Evaluates genomes from task queue
+- `SwarmSimulator` — Runs swarm simulations for evaluation
+
+```bash
+# Run controller
+python -m neuro_swarm.services.controller --algorithm es --redis-url redis://localhost:6379
+
+# Run worker
+python -m neuro_swarm.services.worker --redis-url redis://localhost:6379
+```
+
 ---
 
 ## Development Roadmap
@@ -227,11 +288,13 @@ Distributed evolutionary optimization for swarm parameters.
 - [x] Single agent study
 - [x] Pair dynamics study
 
-### Phase 2: Emergence (Current)
-- [ ] Triad consensus study (implement consensus protocol)
-- [ ] Small swarm (7±2 agents)
-- [ ] Attention protocols
-- [ ] Basic consensus mechanisms
+### Phase 2: Emergence ✓
+- [x] Attention protocols (LocalAttention)
+- [x] Consensus mechanisms (Triumvirate, Local, Role-based)
+- [x] Tension resolution (Dynamic, Paladin/Chaos)
+- [x] Distributed services (Controller, Worker, Queue)
+- [ ] Triad consensus study integration
+- [ ] Small swarm (7±2 agents) study integration
 
 ### Phase 3: Scale
 - [ ] Large swarm experiments (50-100 agents)
