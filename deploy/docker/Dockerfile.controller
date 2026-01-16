@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml ./
 COPY neuro_swarm/ ./neuro_swarm/
 
-# Install the package
-RUN pip install --no-cache-dir -e ".[dev]" redis
+# Install the package with database support
+RUN pip install --no-cache-dir -e ".[dev,database]" redis
 
 # Health check endpoint
 EXPOSE 8080
@@ -24,9 +24,16 @@ ENV REDIS_HOST=redis \
     ALGORITHM=map_elites \
     POPULATION_SIZE=50 \
     MAX_GENERATIONS=1000 \
-    SIMULATION_STEPS=300
+    SIMULATION_STEPS=300 \
+    POSTGRES_HOST=timescaledb \
+    POSTGRES_PORT=5432 \
+    POSTGRES_DB=neuro_swarm \
+    POSTGRES_USER=postgres \
+    POSTGRES_PASSWORD="" \
+    DB_PERSISTENCE_ENABLED=true
 
 # Run the controller with shell to expand env vars
+# Database args read from environment variables automatically
 CMD python -m neuro_swarm.services.controller \
     --redis-url redis://${REDIS_HOST}:${REDIS_PORT} \
     --algorithm ${ALGORITHM} \

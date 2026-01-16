@@ -100,6 +100,22 @@ spec:
               value: "1000"
             - name: SIMULATION_STEPS
               value: "300"
+            # Database persistence
+            - name: POSTGRES_HOST
+              value: "timescaledb"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: "neuro_swarm"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-secret
+                  key: password
+            - name: DB_PERSISTENCE_ENABLED
+              value: "true"
           resources:
             requests:
               cpu: "500m"

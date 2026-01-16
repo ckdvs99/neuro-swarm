@@ -57,8 +57,11 @@ dashboard = [
     "uvicorn>=0.23.0",
     "websockets>=11.0",
 ]
+database = [
+    "psycopg2-binary>=2.9.0",
+]
 all = [
-    "neuro-swarm[dev,viz,ml,dashboard]",
+    "neuro-swarm[dev,viz,ml,dashboard,database]",
 ]
 
 [project.urls]

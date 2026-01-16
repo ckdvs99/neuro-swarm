@@ -1,0 +1,261 @@
+# Neuro-Swarm TimescaleDB Backup - Daily backups to NAS
+# Backs up evolution data to mounted NAS storage
+# Apply with: kubectl apply -f deploy/k8s/timescaledb-backup.yaml
+
+---
+# ConfigMap for backup scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: timescaledb-backup-scripts
+  namespace: neuro-swarm
+  labels:
+    app: timescaledb-backup
+data:
+  backup.sh: |
+    #!/bin/bash
+    set -e
+
+    # Configuration
+    BACKUP_DIR="/backup/neuro-swarm/timescaledb"
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    BACKUP_FILE="${BACKUP_DIR}/neuro_swarm_${TIMESTAMP}.sql.gz"
+    RETENTION_DAYS=${RETENTION_DAYS:-30}
+
+    echo "[$(date)] Starting TimescaleDB backup..."
+
+    # Create backup directory if it doesn't exist
+    mkdir -p "${BACKUP_DIR}"
+
+    # Perform pg_dump with compression
+    echo "[$(date)] Dumping database to ${BACKUP_FILE}..."
+    PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+      -h "${POSTGRES_HOST}" \
+      -U "${POSTGRES_USER}" \
+      -d "${POSTGRES_DB}" \
+      --format=plain \
+      --no-owner \
+      --no-acl \
+      | gzip > "${BACKUP_FILE}"
+
+    # Get backup size
+    BACKUP_SIZE=$(du -h "${BACKUP_FILE}" | cut -f1)
+    echo "[$(date)] Backup complete: ${BACKUP_FILE} (${BACKUP_SIZE})"
+
+    # Create latest symlink
+    ln -sf "${BACKUP_FILE}" "${BACKUP_DIR}/latest.sql.gz"
+
+    # Clean up old backups
+    echo "[$(date)] Cleaning up backups older than ${RETENTION_DAYS} days..."
+    find "${BACKUP_DIR}" -name "neuro_swarm_*.sql.gz" -type f -mtime +${RETENTION_DAYS} -delete
+
+    # List remaining backups
+    BACKUP_COUNT=$(ls -1 "${BACKUP_DIR}"/neuro_swarm_*.sql.gz 2>/dev/null | wc -l)
+    echo "[$(date)] Backup retention: ${BACKUP_COUNT} backups retained"
+
+    # Write backup manifest
+    cat > "${BACKUP_DIR}/manifest.json" << EOF
+    {
+      "last_backup": "${TIMESTAMP}",
+      "backup_file": "${BACKUP_FILE}",
+      "backup_size": "${BACKUP_SIZE}",
+      "backup_count": ${BACKUP_COUNT},
+      "retention_days": ${RETENTION_DAYS}
+    }
+    EOF
+
+    echo "[$(date)] Backup job completed successfully"
+
+  restore.sh: |
+    #!/bin/bash
+    set -e
+
+    # Usage: restore.sh [backup_file]
+    # If no backup file specified, uses latest
+
+    BACKUP_DIR="/backup/neuro-swarm/timescaledb"
+    BACKUP_FILE="${1:-${BACKUP_DIR}/latest.sql.gz}"
+
+    if [ ! -f "${BACKUP_FILE}" ]; then
+      echo "Error: Backup file not found: ${BACKUP_FILE}"
+      exit 1
+    fi
+
+    echo "[$(date)] Restoring from ${BACKUP_FILE}..."
+
+    # Drop and recreate database
+    PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+      -h "${POSTGRES_HOST}" \
+      -U "${POSTGRES_USER}" \
+      -d postgres \
+      -c "DROP DATABASE IF EXISTS ${POSTGRES_DB};"
+
+    PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+      -h "${POSTGRES_HOST}" \
+      -U "${POSTGRES_USER}" \
+      -d postgres \
+      -c "CREATE DATABASE ${POSTGRES_DB};"
+
+    # Restore from backup
+    gunzip -c "${BACKUP_FILE}" | PGPASSWORD="${POSTGRES_PASSWORD}" psql \
+      -h "${POSTGRES_HOST}" \
+      -U "${POSTGRES_USER}" \
+      -d "${POSTGRES_DB}"
+
+    echo "[$(date)] Restore completed successfully"
+
+---
+# PersistentVolume for NAS mount
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nas-backup-pv
+  labels:
+    app: timescaledb-backup
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nas-backup
+  hostPath:
+    path: /mnt/nas
+    type: Directory
+
+---
+# PersistentVolumeClaim for NAS backup
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nas-backup-pvc
+  namespace: neuro-swarm
+  labels:
+    app: timescaledb-backup
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: nas-backup
+
+---
+# CronJob for daily backups
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: timescaledb-backup
+  namespace: neuro-swarm
+  labels:
+    app: timescaledb-backup
+spec:
+  # Run daily at 2 AM
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels:
+            app: timescaledb-backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: timescale/timescaledb:latest-pg16
+              command: ["/bin/bash", "/scripts/backup.sh"]
+              env:
+                - name: POSTGRES_HOST
+                  value: "timescaledb"
+                - name: POSTGRES_USER
+                  value: "postgres"
+                - name: POSTGRES_DB
+                  value: "neuro_swarm"
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: timescaledb-secret
+                      key: password
+                - name: RETENTION_DAYS
+                  value: "30"
+              volumeMounts:
+                - name: backup-scripts
+                  mountPath: /scripts
+                - name: nas-backup
+                  mountPath: /backup
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+          volumes:
+            - name: backup-scripts
+              configMap:
+                name: timescaledb-backup-scripts
+                defaultMode: 0755
+            - name: nas-backup
+              persistentVolumeClaim:
+                claimName: nas-backup-pvc
+
+---
+# Manual backup Job (run with: kubectl create job --from=cronjob/timescaledb-backup manual-backup -n neuro-swarm)
+# Or use this template for on-demand backups:
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: timescaledb-backup-manual
+  namespace: neuro-swarm
+  labels:
+    app: timescaledb-backup
+spec:
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: timescaledb-backup
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: backup
+          image: timescale/timescaledb:latest-pg16
+          command: ["/bin/bash", "/scripts/backup.sh"]
+          env:
+            - name: POSTGRES_HOST
+              value: "timescaledb"
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_DB
+              value: "neuro_swarm"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: timescaledb-secret
+                  key: password
+            - name: RETENTION_DAYS
+              value: "30"
+          volumeMounts:
+            - name: backup-scripts
+              mountPath: /scripts
+            - name: nas-backup
+              mountPath: /backup
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: backup-scripts
+          configMap:
+            name: timescaledb-backup-scripts
+            defaultMode: 0755
+        - name: nas-backup
+          persistentVolumeClaim:
+            claimName: nas-backup-pvc

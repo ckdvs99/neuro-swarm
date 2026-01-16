@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ from .dashboard import (
     DASHBOARD_HISTORY_KEY,
     DASHBOARD_STATUS_KEY,
 )
+from .persistence import EvolutionPersistence, PersistenceConfig
 from .queue import (
     EvaluationTask,
     create_task_queue,
@@ -84,6 +86,16 @@ class ControllerConfig:
     # Dashboard publishing
     publish_to_dashboard: bool = True
     dashboard_history_limit: int = 1000  # Max history entries in Redis
+
+    # Database persistence
+    db_persistence_enabled: bool = True
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_name: str = "neuro_swarm"
+    db_user: str = "postgres"
+    db_password: str = ""
+    db_store_genomes: bool = False
+    db_archive_snapshot_interval: int = 10
 
 
 class EvolutionController:
@@ -127,7 +139,24 @@ class EvolutionController:
         # Dashboard Redis connection (lazy)
         self._dashboard_redis = None
 
+        # Database persistence
+        self.persistence = self._create_persistence()
+
         logger.info(f"Controller initialized with {config.algorithm} algorithm")
+
+    def _create_persistence(self) -> EvolutionPersistence:
+        """Create database persistence layer."""
+        persistence_config = PersistenceConfig(
+            host=self.config.db_host,
+            port=self.config.db_port,
+            database=self.config.db_name,
+            user=self.config.db_user,
+            password=self.config.db_password,
+            enabled=self.config.db_persistence_enabled,
+            store_genomes=self.config.db_store_genomes,
+            archive_snapshot_interval=self.config.db_archive_snapshot_interval,
+        )
+        return EvolutionPersistence(persistence_config)
 
     def _get_dashboard_redis(self):
         """Get Redis connection for dashboard publishing."""
@@ -217,6 +246,38 @@ class EvolutionController:
 
         except Exception as e:
             logger.warning(f"Failed to publish archive: {e}")
+
+    def _persist_archive_snapshot(self) -> None:
+        """Persist MAP-Elites archive snapshot to database."""
+        try:
+            if hasattr(self.algorithm, 'archive') and hasattr(self.algorithm, 'grid_resolution'):
+                archive = self.algorithm.archive
+                grid_res = self.algorithm.grid_resolution
+
+                # Convert archive to serializable format
+                grid_data = []
+                for coords, (genome, fitness) in archive.items():
+                    grid_data.append({
+                        "coords": list(coords),
+                        "fitness": fitness,
+                        "genome": genome.to_dict() if hasattr(genome, 'to_dict') else None,
+                    })
+
+                archive_data = {
+                    "grid": grid_data,
+                    "grid_resolution": list(grid_res),
+                    "coverage": len(archive) / (grid_res[0] * grid_res[1]),
+                    "total_cells": grid_res[0] * grid_res[1],
+                    "filled_cells": len(archive),
+                }
+
+                self.persistence.record_archive_snapshot(
+                    generation=self.generation,
+                    archive_data=archive_data,
+                )
+
+        except Exception as e:
+            logger.warning(f"Failed to persist archive snapshot: {e}")
 
     def _create_algorithm(self) -> EvolutionaryAlgorithm:
         """Create the selected evolutionary algorithm."""
@@ -369,6 +430,21 @@ class EvolutionController:
         # Publish to dashboard
         self._publish_dashboard_status(stats)
 
+        # Persist to database
+        best_genome, _ = self.algorithm.get_best()
+        self.persistence.record_generation(
+            generation=self.generation - 1,
+            stats=stats,
+            best_genome=best_genome.to_dict() if best_genome else None,
+        )
+
+        # Record archive snapshot periodically for MAP-Elites
+        if (
+            self.config.algorithm == "map_elites"
+            and self.generation % self.config.db_archive_snapshot_interval == 0
+        ):
+            self._persist_archive_snapshot()
+
         best_fit = stats.get('best_fitness')
         best_fit_str = f"{best_fit:.4f}" if isinstance(best_fit, (int, float)) else "N/A"
         logger.info(
@@ -392,6 +468,17 @@ class EvolutionController:
         generations = generations or self.config.generations
         self.running = True
         self.start_time = time.time()
+
+        # Start database run tracking
+        run_config = {
+            "population_size": self.config.population_size,
+            "generations": generations,
+            "batch_size": self.config.batch_size,
+            "simulation_steps": self.config.simulation_steps,
+            "num_agents": self.config.num_agents,
+            "seed": self.config.seed,
+        }
+        self.persistence.start_run(self.config.algorithm, run_config)
 
         logger.info(f"Starting evolution for {generations} generations")
 
@@ -428,6 +515,15 @@ class EvolutionController:
             "best_genome": best_genome.to_dict() if best_genome else None,
             "algorithm": self.config.algorithm,
         }
+
+        # End database run tracking
+        self.persistence.end_run(
+            best_fitness=best_fitness or 0.0,
+            best_genome=best_genome.to_dict() if best_genome else None,
+            total_generations=self.generation,
+            total_evaluations=self.total_evaluations,
+        )
+        self.persistence.close()
 
         logger.info(
             f"Evolution complete: {self.generation} generations, "
@@ -517,6 +613,14 @@ def run_controller(config: ControllerConfig | None = None) -> None:
     parser.add_argument("--checkpoint-path", default=None)
     parser.add_argument("--seed", type=int, default=42)
 
+    # Database arguments
+    parser.add_argument("--db-host", default=os.environ.get("POSTGRES_HOST", "localhost"))
+    parser.add_argument("--db-port", type=int, default=int(os.environ.get("POSTGRES_PORT", "5432")))
+    parser.add_argument("--db-name", default=os.environ.get("POSTGRES_DB", "neuro_swarm"))
+    parser.add_argument("--db-user", default=os.environ.get("POSTGRES_USER", "postgres"))
+    parser.add_argument("--db-password", default=os.environ.get("POSTGRES_PASSWORD", ""))
+    parser.add_argument("--db-persistence-enabled", type=bool, default=True)
+
     args = parser.parse_args()
 
     if config is None:
@@ -528,6 +632,12 @@ def run_controller(config: ControllerConfig | None = None) -> None:
             redis_url=args.redis_url,
             checkpoint_path=args.checkpoint_path,
             seed=args.seed,
+            db_host=args.db_host,
+            db_port=args.db_port,
+            db_name=args.db_name,
+            db_user=args.db_user,
+            db_password=args.db_password,
+            db_persistence_enabled=args.db_persistence_enabled,
         )
 
     controller = EvolutionController(config)
