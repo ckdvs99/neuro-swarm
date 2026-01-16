@@ -41,6 +41,7 @@ neuro-swarm/
 ├── CLAUDE.md                  # Claude Code guidance
 ├── README.md                  # This file
 ├── pyproject.toml             # Package configuration
+├── Makefile                   # Development commands
 │
 ├── neuro_swarm/               # Main package
 │   ├── philosophy/
@@ -50,6 +51,11 @@ neuro-swarm/
 │   │   ├── agent.py           # The NeuroAgent - minimal, complete
 │   │   ├── substrate.py       # Stigmergic communication layer
 │   │   └── rhythm.py          # Temporal dynamics
+│   │
+│   ├── evolution/             # Distributed evolutionary optimization
+│   │   ├── algorithms.py      # ES, MAP-Elites, Novelty Search
+│   │   ├── genome.py          # Genome representations
+│   │   └── fitness.py         # Fitness functions
 │   │
 │   ├── protocols/
 │   │   ├── attention.py       # Local neighborhood attention
@@ -68,8 +74,12 @@ neuro-swarm/
 │       ├── 03_triad_consensus/# The triumvirate emerges
 │       └── 04_small_swarm/    # 7±2 agents
 │
+├── deploy/                    # Deployment configurations
+│   └── k8s/                   # Kubernetes manifests
+│
 ├── tests/                     # Test suite
 └── docs/                      # Documentation
+    └── DEPLOYMENT.md          # Kubernetes deployment guide
 ```
 
 ---
@@ -97,22 +107,34 @@ pip install -e ".[dev,viz]"
 ### Running Studies
 
 ```bash
-# Study 01: Single agent observation
-python -m neuro_swarm.studies.01_single_agent.observe
+# Using Make (recommended)
+make study-01      # Single agent
+make study-02      # Pair dynamics
+make study-03      # Triad consensus
+make study-04      # Small swarm
 
-# With options
+# Or directly with options
 python -m neuro_swarm.studies.01_single_agent.observe --steps 1000 --no-animate
-
-# Study 02: Pair dynamics
-python -m neuro_swarm.studies.02_pair_dynamics.observe --scenario symmetric
 python -m neuro_swarm.studies.02_pair_dynamics.observe --scenario pursuer_evader
-python -m neuro_swarm.studies.02_pair_dynamics.observe --scenario opposite_goals
+```
 
-# Study 03: Triad consensus
-python -m neuro_swarm.studies.03_triad_consensus.observe
+### Development Commands
 
-# Study 04: Small swarm
-python -m neuro_swarm.studies.04_small_swarm.observe --agents 7
+```bash
+make test          # Run tests
+make lint          # Linter + type check
+make format        # Format code
+```
+
+### Kubernetes Deployment
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full deployment guide.
+
+```bash
+make deploy        # Deploy to k8s
+make status        # Check status
+make logs          # Tail logs
+make scale N=10    # Scale workers
 ```
 
 ---

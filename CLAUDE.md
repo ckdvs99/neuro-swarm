@@ -55,14 +55,31 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev,viz]"
 
+# Using Make (preferred)
+make install       # Install dependencies
+make test          # Run tests
+make lint          # Run linter + type check
+make format        # Format code
+
 # Run studies
+make study-01      # Single agent
+make study-02      # Pair dynamics
+make study-03      # Triad consensus
+make study-04      # Small swarm (7 agents)
+
+# Or directly
 python -m neuro_swarm.studies.01_single_agent.observe
 python -m neuro_swarm.studies.02_pair_dynamics.observe --scenario symmetric
 python -m neuro_swarm.studies.03_triad_consensus.observe
 python -m neuro_swarm.studies.04_small_swarm.observe --agents 7
 
+# Kubernetes deployment
+make deploy        # Deploy to k8s
+make status        # Check deployment status
+make logs          # Tail controller logs
+make scale N=10    # Scale workers
+
 # Run tests
-pytest
 pytest tests/ -v
 
 # Type check
@@ -82,6 +99,7 @@ neuro-swarm/
 ├── CLAUDE.md                 # This file - Claude Code guidance
 ├── README.md                 # Project overview
 ├── pyproject.toml            # Package configuration
+├── Makefile                  # Development and deployment commands
 │
 ├── neuro_swarm/              # Main package
 │   ├── __init__.py
@@ -93,6 +111,11 @@ neuro-swarm/
 │   │   ├── agent.py          # NeuroAgent - the fundamental unit
 │   │   ├── substrate.py      # Stigmergic communication layer
 │   │   └── rhythm.py         # Temporal dynamics
+│   │
+│   ├── evolution/            # Evolutionary optimization
+│   │   ├── algorithms.py     # ES, MAP-Elites, Novelty Search
+│   │   ├── genome.py         # Genome representations
+│   │   └── fitness.py        # Fitness functions & behavioral descriptors
 │   │
 │   ├── protocols/            # Interaction protocols
 │   │   ├── attention.py      # Local neighborhood attention
@@ -111,8 +134,13 @@ neuro-swarm/
 │       ├── 03_triad_consensus/ # The triumvirate emerges
 │       └── 04_small_swarm/   # 7±2 agents
 │
+├── deploy/                   # Deployment configurations
+│   └── k8s/                  # Kubernetes manifests
+│       └── all-in-one.yaml   # Full deployment manifest
+│
 ├── tests/                    # Test suite
 └── docs/                     # Documentation and assets
+    └── DEPLOYMENT.md         # Kubernetes deployment guide
 ```
 
 ---
@@ -170,6 +198,23 @@ Temporal dynamics. Biological systems have cycles.
 - Substrate integration
 - Neighbor queries respecting locality
 - Step-based simulation
+
+### Evolution Module (`evolution/`)
+
+Distributed evolutionary optimization for swarm parameters.
+
+**Algorithms** (`algorithms.py`):
+- `EvolutionaryStrategy` — OpenAI ES, gradient-free optimization
+- `MAPElites` — Quality-diversity, finds diverse high-quality solutions
+- `NoveltySearch` — Rewards behavioral novelty, escapes local optima
+
+**Genome** (`genome.py`):
+- `AgentGenome` — Parameters for a single agent
+- `SwarmGenome` — Parameters for entire swarm configuration
+
+**Fitness** (`fitness.py`):
+- `SwarmCoherenceFitness` — Rewards cohesion, alignment, efficiency
+- `TaskCompletionFitness` — Rewards goal achievement
 
 ---
 

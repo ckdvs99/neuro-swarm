@@ -1,0 +1,236 @@
+# Neuro-Swarm Evolution - Raw Kubernetes Manifests
+# Apply with: kubectl apply -f deploy/k8s/
+
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: neuro-swarm
+  labels:
+    app: neuro-swarm
+
+---
+# Redis Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: neuro-swarm
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          emptyDir: {}
+
+---
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: neuro-swarm
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+---
+# Controller Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evolution-controller
+  namespace: neuro-swarm
+  labels:
+    app: evolution-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evolution-controller
+  template:
+    metadata:
+      labels:
+        app: evolution-controller
+    spec:
+      containers:
+        - name: controller
+          image: neuro-swarm/controller:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: ALGORITHM
+              value: "map_elites"
+            - name: POPULATION_SIZE
+              value: "50"
+            - name: MAX_GENERATIONS
+              value: "1000"
+            - name: SIMULATION_STEPS
+              value: "300"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+# Controller Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: evolution-controller
+  namespace: neuro-swarm
+spec:
+  selector:
+    app: evolution-controller
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# Worker Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evolution-worker
+  namespace: neuro-swarm
+  labels:
+    app: evolution-worker
+spec:
+  replicas: 5  # Scale this up for more parallelism!
+  selector:
+    matchLabels:
+      app: evolution-worker
+  template:
+    metadata:
+      labels:
+        app: evolution-worker
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: evolution-worker
+      containers:
+        - name: worker
+          image: neuro-swarm/worker:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: SIMULATION_STEPS
+              value: "300"
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+---
+# Worker HorizontalPodAutoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: evolution-worker
+  namespace: neuro-swarm
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: evolution-worker
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+
+---
+# Optional: NodePort Service for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: evolution-controller-external
+  namespace: neuro-swarm
+spec:
+  selector:
+    app: evolution-controller
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30080
+  type: NodePort
