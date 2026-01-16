@@ -1,0 +1,221 @@
+{
+    "folders": [
+        {
+            "path": ".",
+            "name": "neuro-swarm"
+        }
+    ],
+    "settings": {
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.autoImportCompletions": true,
+        "python.analysis.diagnosticMode": "workspace",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "python.terminal.activateEnvironment": true,
+        "editor.formatOnSave": true,
+        "editor.formatOnPaste": false,
+        "editor.rulers": [88],
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false,
+        "[python]": {
+            "editor.defaultFormatter": "charliermarsh.ruff",
+            "editor.codeActionsOnSave": {
+                "source.fixAll": "explicit",
+                "source.organizeImports": "explicit"
+            }
+        },
+        "[markdown]": {
+            "editor.wordWrap": "on",
+            "editor.quickSuggestions": {
+                "comments": "off",
+                "strings": "off",
+                "other": "off"
+            }
+        },
+        "[json]": {
+            "editor.defaultFormatter": "vscode.json-language-features"
+        },
+        "[toml]": {
+            "editor.defaultFormatter": "tamasfe.even-better-toml"
+        },
+        "files.exclude": {
+            "**/__pycache__": true,
+            "**/*.pyc": true,
+            ".pytest_cache": true,
+            ".mypy_cache": true,
+            ".ruff_cache": true,
+            "*.egg-info": true,
+            ".venv": false
+        },
+        "files.associations": {
+            "PRINCIPLES.md": "markdown",
+            "CLAUDE.md": "markdown"
+        },
+        "files.watcherExclude": {
+            "**/.venv/**": true,
+            "**/__pycache__/**": true,
+            "**/.git/objects/**": true
+        },
+        "search.exclude": {
+            "**/.venv": true,
+            "**/node_modules": true,
+            "**/__pycache__": true
+        },
+        "terminal.integrated.env.linux": {
+            "KUBECONFIG": "/etc/rancher/k3s/k3s.yaml",
+            "KUBE_NAMESPACE": "neuro-swarm"
+        },
+        "terminal.integrated.env.osx": {
+            "KUBECONFIG": "~/.kube/config",
+            "KUBE_NAMESPACE": "neuro-swarm"
+        },
+        "vs-kubernetes": {
+            "vs-kubernetes.namespace": "neuro-swarm",
+            "vs-kubernetes.kubectl-path": "/usr/local/bin/kubectl"
+        },
+        "git.enableSmartCommit": true,
+        "git.confirmSync": false,
+        "git.autofetch": true
+    },
+    "extensions": {
+        "recommendations": [
+            "ms-python.python",
+            "ms-python.vscode-pylance",
+            "charliermarsh.ruff",
+            "tamasfe.even-better-toml",
+            "yzhang.markdown-all-in-one",
+            "ms-kubernetes-tools.vscode-kubernetes-tools",
+            "redhat.vscode-yaml",
+            "eamodio.gitlens",
+            "mhutchie.git-graph",
+            "esbenp.prettier-vscode"
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "Study 01: Single Agent",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "neuro_swarm.studies.01_single_agent.observe",
+                "args": ["--steps", "200", "--no-animate"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            },
+            {
+                "name": "Study 02: Pair Dynamics (Symmetric)",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "neuro_swarm.studies.02_pair_dynamics.observe",
+                "args": ["--scenario", "symmetric", "--no-animate"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            },
+            {
+                "name": "Study 02: Pair Dynamics (Pursuer/Evader)",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "neuro_swarm.studies.02_pair_dynamics.observe",
+                "args": ["--scenario", "pursuer_evader", "--no-animate"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            },
+            {
+                "name": "Study 03: Triad Consensus",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "neuro_swarm.studies.03_triad_consensus.observe",
+                "args": ["--no-animate"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            },
+            {
+                "name": "Study 04: Small Swarm (7 agents)",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "neuro_swarm.studies.04_small_swarm.observe",
+                "args": ["--agents", "7", "--no-animate"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            },
+            {
+                "name": "Run All Tests",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "pytest",
+                "args": ["tests/", "-v", "--tb=short"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            },
+            {
+                "name": "Run Tests with Coverage",
+                "type": "debugpy",
+                "request": "launch",
+                "module": "pytest",
+                "args": ["tests/", "-v", "--cov=neuro_swarm", "--cov-report=term-missing"],
+                "console": "integratedTerminal",
+                "justMyCode": false
+            }
+        ]
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "Install Dependencies",
+                "type": "shell",
+                "command": "pip install -e '.[dev,viz]'",
+                "group": "build",
+                "problemMatcher": []
+            },
+            {
+                "label": "Run Type Check",
+                "type": "shell",
+                "command": "mypy neuro_swarm/",
+                "group": "test",
+                "problemMatcher": "$tsc"
+            },
+            {
+                "label": "Format Code",
+                "type": "shell",
+                "command": "black neuro_swarm/ tests/ && ruff check neuro_swarm/ tests/ --fix",
+                "group": "build",
+                "problemMatcher": []
+            },
+            {
+                "label": "Lint Code",
+                "type": "shell",
+                "command": "ruff check neuro_swarm/ tests/",
+                "group": "test",
+                "problemMatcher": []
+            },
+            {
+                "label": "Run Tests",
+                "type": "shell",
+                "command": "pytest tests/ -v",
+                "group": {
+                    "kind": "test",
+                    "isDefault": true
+                },
+                "problemMatcher": []
+            },
+            {
+                "label": "Set K8s Namespace",
+                "type": "shell",
+                "command": "kubectl config set-context --current --namespace=neuro-swarm",
+                "group": "none",
+                "problemMatcher": []
+            },
+            {
+                "label": "Verify K8s Context",
+                "type": "shell",
+                "command": "kubectl config current-context && kubectl config view --minify | grep namespace",
+                "group": "none",
+                "problemMatcher": []
+            }
+        ]
+    }
+}

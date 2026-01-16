@@ -296,4 +296,124 @@ CHAOS_CONFIG = AgentConfig(
 
 ---
 
+## Kubernetes Environment
+
+**Namespace: `neuro-swarm`**
+
+All Kubernetes operations for this project MUST use the `neuro-swarm` namespace.
+
+### Setup Commands
+
+```bash
+# Set namespace as default for current context
+kubectl config set-context --current --namespace=neuro-swarm
+
+# Verify namespace is active
+kubectl config view --minify | grep namespace
+
+# All kubectl commands should target this namespace
+kubectl get pods -n neuro-swarm
+kubectl apply -f <manifest> -n neuro-swarm
+```
+
+### Enforcement Rules
+
+- **ALWAYS** specify `-n neuro-swarm` or ensure context is set before running kubectl commands
+- **NEVER** deploy resources to `default` namespace
+- **NEVER** deploy to production namespaces from this project context
+- All manifests MUST include `namespace: neuro-swarm` in metadata
+
+### Environment Variables
+
+The VSCode workspace sets these automatically in integrated terminals:
+```bash
+KUBE_NAMESPACE=neuro-swarm
+```
+
+---
+
+## Commit and Documentation Requirements
+
+### Mandatory Commit Practices
+
+**EVERY code change MUST be accompanied by a commit.** Do not leave uncommitted work.
+
+```bash
+# After ANY code modification:
+git add <changed-files>
+git commit -m "type: concise description of change"
+```
+
+#### Commit Message Format
+
+```
+type: subject
+
+[optional body]
+[optional footer]
+```
+
+**Types:**
+- `feat:` — New feature or capability
+- `fix:` — Bug fix
+- `refactor:` — Code restructuring without behavior change
+- `docs:` — Documentation only
+- `test:` — Adding or modifying tests
+- `study:` — New study or observation script
+- `chore:` — Maintenance tasks (deps, config, etc.)
+
+#### Examples
+
+```bash
+git commit -m "feat: add phase coupling to rhythm module"
+git commit -m "fix: correct energy decay calculation in agent update"
+git commit -m "study: implement triad consensus observation"
+git commit -m "docs: update CLAUDE.md with k8s namespace rules"
+```
+
+### Documentation Requirements
+
+**EVERY significant change MUST update relevant documentation.**
+
+#### What Requires Documentation Updates
+
+| Change Type | Required Documentation |
+|-------------|----------------------|
+| New module/file | Update project structure in CLAUDE.md and README.md |
+| New study | Add to studies list, update roadmap |
+| New protocol | Document in protocols section, link to principles |
+| API changes | Update Key Components section |
+| New dependencies | Update pyproject.toml and setup instructions |
+| Configuration changes | Update Build & Development Commands |
+| New constants | Add to Constants and Constraints section |
+
+#### Documentation Locations
+
+- **CLAUDE.md** — Primary reference for Claude Code, detailed technical guidance
+- **README.md** — User-facing overview, installation, quick start
+- **PRINCIPLES.md** — Philosophy (rarely changes)
+- **Study `__init__.py`** — Study-specific documentation and research questions
+
+### Pre-Commit Checklist
+
+Before completing any task, verify:
+
+1. [ ] All code changes are committed
+2. [ ] Commit message follows format
+3. [ ] CLAUDE.md updated if structure/API changed
+4. [ ] README.md updated if user-facing behavior changed
+5. [ ] Tests pass: `pytest tests/ -v`
+6. [ ] Type check passes: `mypy neuro_swarm/`
+7. [ ] Code formatted: `black neuro_swarm/ && ruff check neuro_swarm/`
+
+### Enforcement
+
+**Claude Code MUST:**
+- Commit changes immediately after implementing them
+- Update documentation inline with code changes (not as separate follow-up)
+- Never leave a session with uncommitted code
+- Include documentation updates in the same commit as related code changes when feasible
+
+---
+
 *"We are not building a tool. We are cultivating a system."*
