@@ -13,27 +13,29 @@ Designed for horizontal scaling - add more workers for faster evolution.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
+
+import logging
 import time
 import uuid
-import logging
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
-from neuro_swarm.core.agent import NeuroAgent, AgentConfig
-from neuro_swarm.core.substrate import Substrate, SubstrateConfig
-from neuro_swarm.environments.simple_field import SimpleField, FieldConfig
-from neuro_swarm.evolution.genome import SwarmGenome, AgentGenome
+from neuro_swarm.core.agent import AgentConfig, NeuroAgent
+from neuro_swarm.core.substrate import SubstrateConfig
+from neuro_swarm.environments.simple_field import FieldConfig, SimpleField
 from neuro_swarm.evolution.fitness import (
+    FitnessFunction,
     SwarmCoherenceFitness,
     TaskCompletionFitness,
-    FitnessFunction,
 )
+from neuro_swarm.evolution.genome import SwarmGenome
+
+from .dashboard import WORKER_PREFIX
 from .queue import (
-    TaskQueue,
-    EvaluationTask,
     EvaluationResultMessage,
+    EvaluationTask,
     create_task_queue,
 )
 
@@ -63,7 +65,11 @@ class WorkerConfig:
     heartbeat_interval: float = 30.0  # Seconds between heartbeats
 
     # Random seed (None = random each simulation)
-    seed: Optional[int] = None
+    seed: int | None = None
+
+    # Dashboard heartbeat
+    publish_heartbeat: bool = True
+    heartbeat_ttl: int = 60  # Redis TTL for worker heartbeat
 
 
 class SwarmSimulator:
@@ -76,7 +82,7 @@ class SwarmSimulator:
     def __init__(
         self,
         world_size: float = 100.0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ):
         self.world_size = world_size
         self.rng = np.random.default_rng(seed)
@@ -86,7 +92,7 @@ class SwarmSimulator:
         genome: SwarmGenome,
         steps: int = 200,
         record_interval: int = 10,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Run a swarm simulation.
 
@@ -154,7 +160,7 @@ class SwarmSimulator:
 
         return trajectory
 
-    def _record_state(self, agents: List[NeuroAgent]) -> Dict[str, Any]:
+    def _record_state(self, agents: list[NeuroAgent]) -> dict[str, Any]:
         """Record current state for trajectory."""
         return {
             "positions": [a.state.position.tolist() for a in agents],
@@ -197,6 +203,9 @@ class EvaluationWorker:
         self.consecutive_errors = 0
         self.last_heartbeat = time.time()
 
+        # Dashboard Redis connection (lazy)
+        self._dashboard_redis = None
+
         logger.info(f"Worker {self.worker_id} initialized")
 
     def _create_fitness_function(self) -> FitnessFunction:
@@ -207,6 +216,44 @@ class EvaluationWorker:
             return TaskCompletionFitness()
         else:
             raise ValueError(f"Unknown fitness type: {self.config.fitness_type}")
+
+    def _get_dashboard_redis(self):
+        """Get Redis connection for dashboard heartbeat."""
+        if self._dashboard_redis is None and self.config.queue_backend == "redis":
+            try:
+                import redis
+                self._dashboard_redis = redis.from_url(
+                    self.config.redis_url, decode_responses=True
+                )
+                self._dashboard_redis.ping()
+            except Exception as e:
+                logger.warning(f"Failed to connect to Redis for heartbeat: {e}")
+                self._dashboard_redis = None
+        return self._dashboard_redis
+
+    def _publish_heartbeat(self) -> None:
+        """Publish worker heartbeat to Redis."""
+        if not self.config.publish_heartbeat:
+            return
+
+        r = self._get_dashboard_redis()
+        if r is None:
+            return
+
+        try:
+            import json
+            worker_key = f"{WORKER_PREFIX}{self.worker_id}"
+            worker_data = {
+                "worker_id": self.worker_id,
+                "tasks_completed": self.tasks_completed,
+                "tasks_failed": self.tasks_failed,
+                "consecutive_errors": self.consecutive_errors,
+                "running": self.running,
+                "last_heartbeat": time.time(),
+            }
+            r.setex(worker_key, self.config.heartbeat_ttl, json.dumps(worker_data))
+        except Exception as e:
+            logger.warning(f"Failed to publish heartbeat: {e}")
 
     def evaluate_task(self, task: EvaluationTask) -> EvaluationResultMessage:
         """
@@ -300,6 +347,9 @@ class EvaluationWorker:
         self.running = True
         logger.info(f"Worker {self.worker_id} starting")
 
+        # Publish initial heartbeat
+        self._publish_heartbeat()
+
         try:
             while self.running:
                 # Check for too many consecutive errors
@@ -312,13 +362,14 @@ class EvaluationWorker:
                 # Process task
                 processed = self.process_one()
 
-                # Heartbeat logging
+                # Heartbeat logging and Redis publish
                 now = time.time()
                 if now - self.last_heartbeat >= self.config.heartbeat_interval:
                     logger.info(
                         f"Worker {self.worker_id} heartbeat: "
                         f"{self.tasks_completed} completed, {self.tasks_failed} failed"
                     )
+                    self._publish_heartbeat()
                     self.last_heartbeat = now
 
                 # Small sleep if no task to prevent busy-waiting
@@ -339,7 +390,7 @@ class EvaluationWorker:
         """Stop worker gracefully."""
         self.running = False
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current worker status."""
         return {
             "worker_id": self.worker_id,
@@ -350,7 +401,7 @@ class EvaluationWorker:
         }
 
 
-def run_worker(config: Optional[WorkerConfig] = None) -> None:
+def run_worker(config: WorkerConfig | None = None) -> None:
     """
     Run the worker as a standalone service.
 

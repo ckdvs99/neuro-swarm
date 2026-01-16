@@ -1,0 +1,111 @@
+# Neuro-Swarm Dashboard - GitOps-friendly K8s Manifests
+# ConfigMap changes sync via Flux without rebuilding images
+# Apply with: kubectl apply -f deploy/k8s/dashboard.yaml
+
+---
+# Dashboard ConfigMap - Change this for config updates via Flux sync
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-config
+  namespace: neuro-swarm
+  labels:
+    app: dashboard
+    component: monitoring
+data:
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  DASHBOARD_HOST: "0.0.0.0"
+  DASHBOARD_PORT: "8082"
+
+---
+# Dashboard Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: neuro-swarm
+  labels:
+    app: dashboard
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+        component: monitoring
+    spec:
+      containers:
+        - name: dashboard
+          image: neuro-swarm-dashboard:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+              name: http
+          envFrom:
+            - configMapRef:
+                name: dashboard-config
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 8082
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+
+---
+# Dashboard ClusterIP Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: neuro-swarm
+  labels:
+    app: dashboard
+    component: monitoring
+spec:
+  selector:
+    app: dashboard
+  ports:
+    - port: 8082
+      targetPort: 8082
+      name: http
+  type: ClusterIP
+
+---
+# Dashboard NodePort Service for external browser access
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-external
+  namespace: neuro-swarm
+  labels:
+    app: dashboard
+    component: monitoring
+spec:
+  selector:
+    app: dashboard
+  ports:
+    - port: 8082
+      targetPort: 8082
+      nodePort: 30082
+      name: http
+  type: NodePort

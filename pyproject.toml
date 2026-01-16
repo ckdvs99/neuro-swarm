@@ -52,8 +52,13 @@ ml = [
     "torch>=2.0.0",
     "scikit-learn>=1.3.0",
 ]
+dashboard = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "websockets>=11.0",
+]
 all = [
-    "neuro-swarm[dev,viz,ml]",
+    "neuro-swarm[dev,viz,ml,dashboard]",
 ]
 
 [project.urls]

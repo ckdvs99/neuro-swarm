@@ -135,7 +135,12 @@ neuro-swarm/
 │   ├── services/             # Distributed services
 │   │   ├── queue.py          # Task queue (Redis/in-memory)
 │   │   ├── controller.py     # Evolution controller
-│   │   └── worker.py         # Evaluation worker
+│   │   ├── worker.py         # Evaluation worker
+│   │   ├── dashboard.py      # Web-based monitoring dashboard
+│   │   └── static/           # Dashboard frontend assets
+│   │       ├── index.html    # Dashboard HTML
+│   │       ├── style.css     # Dashboard styles
+│   │       └── app.js        # Dashboard JavaScript
 │   │
 │   ├── environments/         # Simulation environments
 │   │   └── simple_field.py   # 2D continuous space
@@ -150,8 +155,13 @@ neuro-swarm/
 │       └── 04_small_swarm/   # 7±2 agents
 │
 ├── deploy/                   # Deployment configurations
+│   ├── docker/               # Container images
+│   │   ├── Dockerfile.controller  # Controller container
+│   │   ├── Dockerfile.worker      # Worker container
+│   │   └── Dockerfile.dashboard   # Dashboard container
 │   └── k8s/                  # Kubernetes manifests
-│       └── all-in-one.yaml   # Full deployment manifest
+│       ├── all-in-one.yaml   # Full deployment manifest
+│       └── dashboard.yaml    # Dashboard deployment (GitOps-friendly)
 │
 ├── tests/                    # Test suite
 │   ├── test_agent.py         # Core agent tests
@@ -312,13 +322,41 @@ Distributed services for evolutionary optimization.
 - `EvaluationWorker` — Evaluates genomes from task queue
 - `SwarmSimulator` — Runs swarm simulations for evaluation
 
+**Dashboard** (`dashboard.py`):
+- `DashboardState` — Reads shared state from Redis
+- `create_app()` — Creates FastAPI application
+- Real-time monitoring via WebSocket updates
+- REST API endpoints for status, history, archive, workers, queue metrics
+
+**Dashboard Features:**
+- Evolution progress chart (best/mean/min fitness over generations)
+- MAP-Elites archive heatmap visualization
+- Worker status table with heartbeat tracking
+- Queue health metrics (task/result queue lengths, throughput)
+
 ```bash
 # Run controller
 python -m neuro_swarm.services.controller --algorithm es --redis-url redis://localhost:6379
 
 # Run worker
 python -m neuro_swarm.services.worker --redis-url redis://localhost:6379
+
+# Run dashboard
+pip install -e ".[dashboard]"
+python -m neuro_swarm.services.dashboard --redis-url redis://localhost:6379 --port 8082
 ```
+
+**Dashboard API Endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/status` | Controller state (generation, running, elapsed) |
+| `GET /api/statistics` | Algorithm stats (coverage, fitness metrics) |
+| `GET /api/history` | Generation history with pagination |
+| `GET /api/best` | Best genome found + fitness |
+| `GET /api/archive` | MAP-Elites archive as heatmap data |
+| `GET /api/workers` | Worker status list |
+| `GET /api/queue` | Queue lengths and health |
+| `WS /ws/updates` | Real-time generation updates |
 
 ---
 
@@ -336,6 +374,7 @@ python -m neuro_swarm.services.worker --redis-url redis://localhost:6379
 - [x] Consensus mechanisms (Triumvirate, Local, Role-based)
 - [x] Tension resolution (Dynamic, Paladin/Chaos)
 - [x] Distributed services (Controller, Worker, Queue)
+- [x] Monitoring dashboard (WebSocket, REST API, heatmaps)
 - [ ] Triad consensus study integration
 - [ ] Small swarm (7±2 agents) study integration
 

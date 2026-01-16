@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuro-Swarm Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>Neuro-Swarm Dashboard</h1>
+            <span id="status-badge" class="status-badge stopped">Stopped</span>
+        </div>
+        <div class="header-right">
+            <div class="stat">
+                <span class="stat-label">Generation</span>
+                <span id="generation" class="stat-value">0</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Evaluations</span>
+                <span id="evaluations" class="stat-value">0</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Elapsed</span>
+                <span id="elapsed" class="stat-value">00:00:00</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Algorithm</span>
+                <span id="algorithm" class="stat-value">-</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="dashboard-grid">
+            <!-- Evolution Progress Chart -->
+            <section class="panel chart-panel">
+                <h2>Evolution Progress</h2>
+                <div class="chart-container">
+                    <canvas id="fitness-chart"></canvas>
+                </div>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="dot best"></span> Best</span>
+                    <span class="legend-item"><span class="dot mean"></span> Mean</span>
+                    <span class="legend-item"><span class="dot min"></span> Min</span>
+                </div>
+            </section>
+
+            <!-- MAP-Elites Archive Heatmap -->
+            <section class="panel archive-panel">
+                <h2>MAP-Elites Archive</h2>
+                <div class="archive-stats">
+                    <span>Coverage: <strong id="archive-coverage">0.0%</strong></span>
+                    <span>Cells: <strong id="archive-cells">0 / 400</strong></span>
+                </div>
+                <div class="heatmap-container">
+                    <canvas id="archive-heatmap" width="400" height="400"></canvas>
+                </div>
+                <div id="heatmap-tooltip" class="heatmap-tooltip"></div>
+            </section>
+
+            <!-- Worker Status Table -->
+            <section class="panel workers-panel">
+                <h2>Workers</h2>
+                <div class="table-container">
+                    <table id="workers-table">
+                        <thead>
+                            <tr>
+                                <th>Worker ID</th>
+                                <th>Status</th>
+                                <th>Tasks</th>
+                                <th>Failures</th>
+                                <th>Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="workers-tbody">
+                            <tr class="empty-row">
+                                <td colspan="5">No workers connected</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Queue Health Panel -->
+            <section class="panel queue-panel">
+                <h2>Queue Health</h2>
+                <div class="queue-metrics">
+                    <div class="metric">
+                        <div class="metric-header">
+                            <span class="metric-label">Task Queue</span>
+                            <span id="task-queue-alert" class="alert hidden">!</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="task-queue-bar" class="progress-fill"></div>
+                        </div>
+                        <span id="task-queue-value" class="metric-value">0</span>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-header">
+                            <span class="metric-label">Result Queue</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div id="result-queue-bar" class="progress-fill"></div>
+                        </div>
+                        <span id="result-queue-value" class="metric-value">0</span>
+                    </div>
+                    <div class="metric throughput-metric">
+                        <span class="metric-label">Throughput</span>
+                        <span id="throughput-value" class="metric-value large">0.0</span>
+                        <span class="metric-unit">tasks/sec</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Best Genome Panel -->
+            <section class="panel best-panel">
+                <h2>Best Solution</h2>
+                <div class="best-stats">
+                    <div class="best-fitness">
+                        <span class="label">Fitness</span>
+                        <span id="best-fitness" class="value">-</span>
+                    </div>
+                    <div class="best-details">
+                        <h3>Genome Parameters</h3>
+                        <pre id="best-genome">No solution yet</pre>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer>
+        <div class="connection-status">
+            <span id="ws-status" class="ws-indicator disconnected"></span>
+            <span id="ws-status-text">Disconnected</span>
+        </div>
+        <span>Neuro-Swarm v0.1.0</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

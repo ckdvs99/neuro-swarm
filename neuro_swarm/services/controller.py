@@ -14,32 +14,37 @@ Designed for distributed execution with graceful degradation.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Type
+
+import json
+import logging
 import time
 import uuid
-import logging
-import json
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 from neuro_swarm.evolution.algorithms import (
     EvolutionaryAlgorithm,
     EvolutionaryStrategy,
+    EvolutionConfig,
     MAPElites,
     NoveltySearch,
-    EvolutionConfig,
 )
-from neuro_swarm.evolution.genome import Genome, SwarmGenome
 from neuro_swarm.evolution.fitness import (
-    EvaluationResult,
-    BehavioralDescriptor,
     SWARM_BEHAVIOR_DESCRIPTOR,
+    BehavioralDescriptor,
+    EvaluationResult,
+)
+from neuro_swarm.evolution.genome import Genome
+
+from .dashboard import (
+    DASHBOARD_ARCHIVE_KEY,
+    DASHBOARD_HISTORY_KEY,
+    DASHBOARD_STATUS_KEY,
 )
 from .queue import (
-    TaskQueue,
     EvaluationTask,
-    EvaluationResultMessage,
     create_task_queue,
 )
 
@@ -71,10 +76,14 @@ class ControllerConfig:
 
     # Checkpointing
     checkpoint_interval: int = 10  # Generations between checkpoints
-    checkpoint_path: Optional[str] = None
+    checkpoint_path: str | None = None
 
     # Random seed
     seed: int = 42
+
+    # Dashboard publishing
+    publish_to_dashboard: bool = True
+    dashboard_history_limit: int = 1000  # Max history entries in Redis
 
 
 class EvolutionController:
@@ -87,7 +96,7 @@ class EvolutionController:
     def __init__(
         self,
         config: ControllerConfig,
-        behavior_descriptor: Optional[BehavioralDescriptor] = None,
+        behavior_descriptor: BehavioralDescriptor | None = None,
     ):
         self.config = config
         self.behavior_descriptor = behavior_descriptor or SWARM_BEHAVIOR_DESCRIPTOR
@@ -107,15 +116,107 @@ class EvolutionController:
         # State tracking
         self.generation = 0
         self.total_evaluations = 0
-        self.pending_tasks: Dict[str, EvaluationTask] = {}
-        self.pending_genomes: Dict[str, Genome] = {}
-        self.history: List[Dict[str, Any]] = []
+        self.pending_tasks: dict[str, EvaluationTask] = {}
+        self.pending_genomes: dict[str, Genome] = {}
+        self.history: list[dict[str, Any]] = []
 
         # Status
         self.running = False
-        self.start_time: Optional[float] = None
+        self.start_time: float | None = None
+
+        # Dashboard Redis connection (lazy)
+        self._dashboard_redis = None
 
         logger.info(f"Controller initialized with {config.algorithm} algorithm")
+
+    def _get_dashboard_redis(self):
+        """Get Redis connection for dashboard publishing."""
+        if self._dashboard_redis is None and self.config.queue_backend == "redis":
+            try:
+                import redis
+                self._dashboard_redis = redis.from_url(
+                    self.config.redis_url, decode_responses=True
+                )
+                self._dashboard_redis.ping()
+                logger.info("Dashboard Redis connection established")
+            except Exception as e:
+                logger.warning(f"Failed to connect to Redis for dashboard: {e}")
+                self._dashboard_redis = None
+        return self._dashboard_redis
+
+    def _publish_dashboard_status(self, stats: dict[str, Any]) -> None:
+        """Publish current status to Redis for dashboard."""
+        if not self.config.publish_to_dashboard:
+            return
+
+        r = self._get_dashboard_redis()
+        if r is None:
+            return
+
+        try:
+            # Get best genome
+            best_genome, best_fitness = self.algorithm.get_best()
+
+            # Build status payload
+            elapsed = 0.0
+            if self.start_time:
+                elapsed = time.time() - self.start_time
+
+            status = {
+                "running": self.running,
+                "generation": self.generation,
+                "total_evaluations": self.total_evaluations,
+                "elapsed_time": elapsed,
+                "algorithm": self.config.algorithm,
+                "best_fitness": best_fitness,
+                "best_genome": best_genome.to_dict() if best_genome else None,
+                "statistics": self.algorithm.get_statistics(),
+            }
+
+            # Publish status
+            r.set(DASHBOARD_STATUS_KEY, json.dumps(status))
+
+            # Publish to history list (prepend for most recent first)
+            r.lpush(DASHBOARD_HISTORY_KEY, json.dumps(stats))
+            r.ltrim(DASHBOARD_HISTORY_KEY, 0, self.config.dashboard_history_limit - 1)
+
+            # Publish archive for MAP-Elites
+            if self.config.algorithm == "map_elites":
+                self._publish_archive()
+
+        except Exception as e:
+            logger.warning(f"Failed to publish dashboard status: {e}")
+
+    def _publish_archive(self) -> None:
+        """Publish MAP-Elites archive to Redis."""
+        r = self._get_dashboard_redis()
+        if r is None:
+            return
+
+        try:
+            if hasattr(self.algorithm, 'archive') and hasattr(self.algorithm, 'grid_resolution'):
+                archive = self.algorithm.archive
+                grid_res = self.algorithm.grid_resolution
+
+                # Convert archive to heatmap data
+                grid_data = []
+                for coords, (_genome, fitness) in archive.items():
+                    grid_data.append({
+                        "coords": list(coords),
+                        "fitness": fitness,
+                    })
+
+                archive_payload = {
+                    "grid": grid_data,
+                    "grid_resolution": list(grid_res),
+                    "coverage": len(archive) / (grid_res[0] * grid_res[1]),
+                    "behavior_bounds": [[0, 1], [0, 1]],
+                }
+
+                r.set(DASHBOARD_ARCHIVE_KEY, json.dumps(archive_payload))
+
+        except Exception as e:
+            logger.warning(f"Failed to publish archive: {e}")
 
     def _create_algorithm(self) -> EvolutionaryAlgorithm:
         """Create the selected evolutionary algorithm."""
@@ -140,7 +241,7 @@ class EvolutionController:
         else:
             raise ValueError(f"Unknown algorithm: {self.config.algorithm}")
 
-    def _create_simulation_config(self) -> Dict[str, Any]:
+    def _create_simulation_config(self) -> dict[str, Any]:
         """Create simulation configuration for workers."""
         return {
             "steps": self.config.simulation_steps,
@@ -180,7 +281,7 @@ class EvolutionController:
         logger.info(f"Generation {self.generation}: Created {tasks_created} tasks")
         return tasks_created
 
-    def collect_results(self, timeout: float = None) -> List[EvaluationResult]:
+    def collect_results(self, timeout: float = None) -> list[EvaluationResult]:
         """
         Collect results from workers.
 
@@ -232,7 +333,7 @@ class EvolutionController:
 
         return results
 
-    def step(self) -> Dict[str, Any]:
+    def step(self) -> dict[str, Any]:
         """
         Execute one generation of evolution.
 
@@ -265,6 +366,9 @@ class EvolutionController:
         self.history.append(stats)
         self.generation += 1
 
+        # Publish to dashboard
+        self._publish_dashboard_status(stats)
+
         best_fit = stats.get('best_fitness')
         best_fit_str = f"{best_fit:.4f}" if isinstance(best_fit, (int, float)) else "N/A"
         logger.info(
@@ -275,7 +379,7 @@ class EvolutionController:
 
         return stats
 
-    def run(self, generations: Optional[int] = None) -> Dict[str, Any]:
+    def run(self, generations: int | None = None) -> dict[str, Any]:
         """
         Run evolution for specified number of generations.
 
@@ -296,7 +400,7 @@ class EvolutionController:
                 if not self.running:
                     break
 
-                stats = self.step()
+                self.step()
 
                 # Checkpoint
                 if (
@@ -337,7 +441,7 @@ class EvolutionController:
         self.running = False
         logger.info("Stopping evolution...")
 
-    def save_checkpoint(self, path: Optional[str] = None) -> None:
+    def save_checkpoint(self, path: str | None = None) -> None:
         """Save current state to checkpoint file."""
         path = path or self.config.checkpoint_path
         if path is None:
@@ -368,7 +472,7 @@ class EvolutionController:
 
     def load_checkpoint(self, path: str) -> None:
         """Load state from checkpoint file."""
-        with open(path, "r") as f:
+        with open(path) as f:
             checkpoint = json.load(f)
 
         self.generation = checkpoint.get("generation", 0)
@@ -377,7 +481,7 @@ class EvolutionController:
 
         logger.info(f"Checkpoint loaded from {path}: generation {self.generation}")
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current controller status."""
         elapsed = 0.0
         if self.start_time:
@@ -395,7 +499,7 @@ class EvolutionController:
         }
 
 
-def run_controller(config: Optional[ControllerConfig] = None) -> None:
+def run_controller(config: ControllerConfig | None = None) -> None:
     """
     Run the controller as a standalone service.
 
