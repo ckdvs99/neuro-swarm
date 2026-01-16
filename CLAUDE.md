@@ -109,6 +109,7 @@ neuro-swarm/
 │   │
 │   ├── core/                 # Core components
 │   │   ├── agent.py          # NeuroAgent - the fundamental unit
+│   │   ├── agent_brain.py    # Brain-augmented agents with distilled models
 │   │   ├── substrate.py      # Stigmergic communication layer
 │   │   └── rhythm.py         # Temporal dynamics
 │   │
@@ -116,6 +117,15 @@ neuro-swarm/
 │   │   ├── algorithms.py     # ES, MAP-Elites, Novelty Search
 │   │   ├── genome.py         # Genome representations
 │   │   └── fitness.py        # Fitness functions & behavioral descriptors
+│   │
+│   ├── distillation/         # Model distillation pipeline
+│   │   ├── distiller.py      # LoRA fine-tuning for agent models
+│   │   ├── inference.py      # Fast inference for distilled brains
+│   │   ├── quantizer.py      # INT4/INT8 quantization
+│   │   ├── data_generator.py # Training data from teacher models
+│   │   └── scripts/          # Training CLI tools
+│   │       ├── train.py      # Full distillation pipeline CLI
+│   │       └── train_mamba.py # Mamba SSM training for swarm units
 │   │
 │   ├── protocols/            # Interaction protocols
 │   │   ├── attention.py      # Local neighborhood attention
@@ -150,7 +160,8 @@ neuro-swarm/
 │   └── test_services.py      # Distributed services tests
 │
 └── docs/                     # Documentation and assets
-    └── DEPLOYMENT.md         # Kubernetes deployment guide
+    ├── DEPLOYMENT.md         # Kubernetes deployment guide
+    └── MODEL_DISTILLATION_ROADMAP.md  # Distillation pipeline roadmap
 ```
 
 ---
@@ -226,6 +237,38 @@ Distributed evolutionary optimization for swarm parameters.
 - `SwarmCoherenceFitness` — Rewards cohesion, alignment, efficiency
 - `TaskCompletionFitness` — Rewards goal achievement
 
+### Distillation Module (`distillation/`)
+
+Model distillation pipeline for training specialized, locally-deployable agent brains.
+
+**Tiers:**
+- `Triumvirate` — Consensus/coordination models (~3-7B params)
+- `Paladin` — Defensive/anomaly detection models (~1-3B params)
+- `Chaos` — Adversarial/attack generation models (~1-3B params)
+- `SwarmUnit` — Minimal Mamba SSM models (~100M-500M params)
+
+**Components:**
+- `AgentDistiller` — LoRA fine-tuning pipeline with QLoRA support
+- `AgentInferenceEngine` — Fast inference for distilled brains
+- `ModelQuantizer` — GPTQ/AWQ/BnB quantization for edge deployment
+- `TaskDataGenerator` — Generate training data from teacher models (Claude API or local)
+
+**Brain-Augmented Agents** (`core/agent_brain.py`):
+- `BrainAugmentedAgent` — NeuroAgent with optional neural brain
+- `TriumvirateAgent` — High-level coordinator with distilled reasoning
+- `PaladinAgent` — Defensive agent with threat detection
+- `ChaosAgent` — Adversarial agent for red team simulation
+- `SwarmUnitAgent` — Fast Mamba-based swarm unit
+
+```bash
+# Train agent models
+python -m neuro_swarm.distillation.scripts.train triumvirate --base-model Qwen/Qwen2.5-7B-Instruct
+python -m neuro_swarm.distillation.scripts.train_mamba --epochs 100
+
+# Generate training data
+python -m neuro_swarm.distillation.scripts.train triumvirate --generate-data --teacher anthropic
+```
+
 ### Protocols (`protocols/`)
 
 Interaction protocols for swarm coordination.
@@ -296,11 +339,14 @@ python -m neuro_swarm.services.worker --redis-url redis://localhost:6379
 - [ ] Triad consensus study integration
 - [ ] Small swarm (7±2 agents) study integration
 
-### Phase 3: Scale
+### Phase 3: Scale & Distillation
 - [ ] Large swarm experiments (50-100 agents)
 - [ ] Hierarchical organization
 - [ ] Learned SSM parameters
 - [ ] Performance benchmarks
+- [x] Model distillation pipeline (LoRA, quantization)
+- [x] Brain-augmented agents
+- [ ] Mamba SSM training for swarm units
 
 ### Phase 4: Application
 - [ ] Cyber-physical defense scenarios
@@ -518,6 +564,8 @@ Before completing any task, verify:
 
 **Claude Code MUST:**
 - **Commit automatically without asking** — never prompt for permission to commit
+- **Commit frequently and often** — small, atomic commits are preferred over large batches
+- **Push and merge automatically** — after commits, push to remote and merge PRs when ready
 - Commit changes immediately after implementing them
 - Update documentation inline with code changes (not as separate follow-up)
 - Never leave a session with uncommitted code
