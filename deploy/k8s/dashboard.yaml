@@ -127,6 +127,13 @@ spec:
     - web
     - websecure
   routes:
+    # WebSocket route - no middleware to allow connection upgrades
+    - match: (Host(`neuro-swarm.local`) || Host(`dashboard.neuro-swarm.local`)) && PathPrefix(`/ws`)
+      kind: Rule
+      services:
+        - name: dashboard
+          port: 8082
+    # HTTP routes with CORS headers
     - match: Host(`neuro-swarm.local`) || Host(`dashboard.neuro-swarm.local`)
       kind: Rule
       services:
