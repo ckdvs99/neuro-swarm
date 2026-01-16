@@ -91,11 +91,12 @@ spec:
   type: ClusterIP
 
 ---
-# Dashboard NodePort Service for external browser access
+# Dashboard NodePort Service (fallback for direct access)
+# Prefer using Traefik IngressRoute below for production
 apiVersion: v1
 kind: Service
 metadata:
-  name: dashboard-external
+  name: dashboard-nodeport
   namespace: neuro-swarm
   labels:
     app: dashboard
@@ -109,3 +110,43 @@ spec:
       nodePort: 30082
       name: http
   type: NodePort
+
+---
+# Traefik IngressRoute for dashboard web access
+# Requires Traefik CRDs to be installed
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard-ingress
+  namespace: neuro-swarm
+  labels:
+    app: dashboard
+    component: monitoring
+spec:
+  entryPoints:
+    - web
+    - websecure
+  routes:
+    - match: Host(`neuro-swarm.local`) || Host(`dashboard.neuro-swarm.local`)
+      kind: Rule
+      services:
+        - name: dashboard
+          port: 8082
+      middlewares:
+        - name: dashboard-headers
+---
+# Middleware for dashboard headers (CORS, security)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dashboard-headers
+  namespace: neuro-swarm
+spec:
+  headers:
+    accessControlAllowMethods:
+      - GET
+      - OPTIONS
+    accessControlAllowOriginList:
+      - "*"
+    accessControlMaxAge: 100
+    addVaryHeader: true
