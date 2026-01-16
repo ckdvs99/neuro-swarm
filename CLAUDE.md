@@ -409,6 +409,7 @@ Before completing any task, verify:
 ### Enforcement
 
 **Claude Code MUST:**
+- **Commit automatically without asking** — never prompt for permission to commit
 - Commit changes immediately after implementing them
 - Update documentation inline with code changes (not as separate follow-up)
 - Never leave a session with uncommitted code
