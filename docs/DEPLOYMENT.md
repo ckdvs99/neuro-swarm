@@ -36,7 +36,29 @@ This guide covers deploying the neuro-swarm evolution system on Kubernetes (k3s)
 
 ## Quick Start
 
-### Option 1: Raw Kubernetes Manifests (Simplest)
+### Option 1: Local k3s Deployment (What We Use)
+
+```bash
+# Build Docker images
+docker build -t neuro-swarm:latest .
+docker build -t neuro-swarm-controller:latest -f deploy/docker/Dockerfile.controller .
+docker build -t neuro-swarm-worker:latest -f deploy/docker/Dockerfile.worker .
+
+# Import images into k3s containerd
+docker save neuro-swarm:latest neuro-swarm-controller:latest neuro-swarm-worker:latest | \
+  sudo k3s ctr images import -
+
+# Deploy everything
+kubectl apply -f deploy/k8s/all-in-one.yaml
+
+# Check status
+kubectl -n neuro-swarm get pods
+
+# Watch evolution progress
+kubectl -n neuro-swarm logs -f deployment/evolution-controller
+```
+
+### Option 2: Raw Kubernetes Manifests
 
 ```bash
 # Build images

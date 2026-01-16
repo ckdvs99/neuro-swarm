@@ -265,10 +265,12 @@ class EvolutionController:
         self.history.append(stats)
         self.generation += 1
 
+        best_fit = stats.get('best_fitness')
+        best_fit_str = f"{best_fit:.4f}" if isinstance(best_fit, (int, float)) else "N/A"
         logger.info(
             f"Generation {self.generation - 1}: "
             f"{len(results)} results, "
-            f"best fitness: {stats.get('best_fitness', 'N/A'):.4f}"
+            f"best fitness: {best_fit_str}"
         )
 
         return stats
