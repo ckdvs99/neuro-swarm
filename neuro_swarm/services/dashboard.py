@@ -12,15 +12,13 @@ Provides real-time visibility into:
 The dashboard is read-only and does not control evolution.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -207,21 +205,37 @@ class DashboardState:
 
 def create_app(config: DashboardConfig) -> Any:
     """Create the FastAPI application."""
+    from contextlib import asynccontextmanager
+
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.responses import FileResponse, HTMLResponse
     from fastapi.staticfiles import StaticFiles
+
+    # WebSocket connections (module-level for lifespan access)
+    active_connections: set[WebSocket] = set()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Application lifespan manager."""
+        logger.info(f"Dashboard starting on {config.host}:{config.port}")
+        yield
+        # Shutdown: close all WebSocket connections
+        logger.info("Dashboard shutting down")
+        for conn in active_connections:
+            try:
+                await conn.close()
+            except Exception:
+                pass
 
     app = FastAPI(
         title="Neuro-Swarm Dashboard",
         description="Monitoring dashboard for distributed evolution",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     # Dashboard state
     state = DashboardState(config.redis_url)
-
-    # WebSocket connections
-    active_connections: set[WebSocket] = set()
 
     # Static files directory
     static_dir = Path(__file__).parent / "static"
@@ -305,26 +319,10 @@ def create_app(config: DashboardConfig) -> Any:
             logger.error(f"WebSocket error: {e}")
             active_connections.discard(websocket)
 
-    @app.on_event("startup")
-    async def startup() -> None:
-        """Log startup."""
-        logger.info(f"Dashboard starting on {config.host}:{config.port}")
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        """Clean up on shutdown."""
-        logger.info("Dashboard shutting down")
-        # Close all WebSocket connections
-        for conn in active_connections:
-            try:
-                await conn.close()
-            except Exception:
-                pass
-
     return app
 
 
-def run_dashboard(config: DashboardConfig | None = None) -> None:
+def run_dashboard(config: Optional[DashboardConfig] = None) -> None:
     """
     Run the dashboard as a standalone service.
 
