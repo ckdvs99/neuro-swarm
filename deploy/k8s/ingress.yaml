@@ -1,0 +1,17 @@
+# Traefik IngressRoute for Neuro-Swarm Dashboard
+# Access via: neuro-swarm.local
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: neuro-swarm-dashboard
+  namespace: neuro-swarm
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`neuro-swarm.local`)
+      kind: Rule
+      services:
+        - name: dashboard
+          port: 8082

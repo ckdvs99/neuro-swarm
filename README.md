@@ -137,6 +137,13 @@ make logs          # Tail logs
 make scale N=10    # Scale workers
 ```
 
+**Web Dashboard:** http://neuro-swarm.local
+
+Add to `/etc/hosts`:
+```
+10.0.0.50  neuro-swarm.local
+```
+
 ---
 
 ## Research Context
